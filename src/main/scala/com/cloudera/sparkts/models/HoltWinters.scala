@@ -93,7 +93,7 @@ class HoltWintersModel(
   if (!modelType.equalsIgnoreCase("additive") && !modelType.equalsIgnoreCase("multiplicative")) {
     throw new IllegalArgumentException("Invalid model type: " + modelType)
   }
-  val additive = modelType.equalsIgnoreCase("additive")
+  val additive: Boolean = modelType.equalsIgnoreCase("additive")
 
   /**
    * Calculates sum of squared errors, used to estimate the alpha and beta parameters
