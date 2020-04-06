@@ -206,7 +206,7 @@ private[sparkts] object TimeSeriesUtils {
       targetIndex: DateTimeIndex,
       defaultValue: Double): Rebaser = {
     // indexMapping(i) = j means that resultArr(i) should be filled with the value from vec(j)
-    val indexMapping = targetIndex.zonedDateTimeIterator.map(sourceIndex.locAtDateTime).toArray
+    val indexMapping = targetIndex.zonedDateTimeIterator().map(sourceIndex.locAtDateTime).toArray
     indexMappingRebaser(indexMapping, defaultValue)
   }
 
@@ -233,8 +233,8 @@ private[sparkts] object TimeSeriesUtils {
     (index, new DenseVector[Double](arr.toArray))
   }
 
-  def samplesToTimeSeries(samples: Iterator[(ZonedDateTime, Double)], index: UniformDateTimeIndex)
-    : (DenseVector[Double]) = {
+  def samplesToTimeSeries(samples: Iterator[(ZonedDateTime, Double)],
+                          index: UniformDateTimeIndex): DenseVector[Double] = {
     val arr = new Array[Double](index.size)
     val iter = iterateWithUniformFrequency(samples, index.frequency)
     var i = 0
@@ -256,8 +256,8 @@ private[sparkts] object TimeSeriesUtils {
       defaultValue: Double = Double.NaN): Iterator[(ZonedDateTime, Double)] = {
     // TODO: throw exceptions for points with non-aligned frequencies
     new Iterator[(ZonedDateTime, Double)]() {
-      var curTup = if (samples.hasNext) samples.next() else null
-      var curUniformDT = if (curTup != null) curTup._1 else null
+      var curTup: (ZonedDateTime, Double) = if (samples.hasNext) samples.next() else null
+      var curUniformDT: ZonedDateTime = if (curTup != null) curTup._1 else null
 
       def hasNext: Boolean = curTup != null
 
@@ -305,7 +305,7 @@ private[sparkts] object TimeSeriesUtils {
   }
 
   def zonedDateTimeToLong(dt: ZonedDateTime): Long = {
-    val secondsInNano = dt.toInstant().getEpochSecond() * 1000000000L
-    secondsInNano + dt.getNano()
+    val secondsInNano = dt.toInstant.getEpochSecond * 1000000000L
+    secondsInNano + dt.getNano
   }
 }

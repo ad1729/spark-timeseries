@@ -104,7 +104,7 @@ object ARIMA {
 
     val params = method match {
       case "css-bobyqa" => fitWithCSSBOBYQA(p, d, q, diffedTs, includeIntercept, initParams)
-      case "css-cgd" => fitWithCSSCGD( p, d, q, diffedTs, includeIntercept, initParams)
+      case "css-cgd" => fitWithCSSCGD(p, d, q, diffedTs, includeIntercept, initParams)
       case _ => throw new UnsupportedOperationException()
     }
 

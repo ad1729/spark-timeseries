@@ -53,7 +53,7 @@ class TimeSeriesRDD[K](val index: DateTimeIndex, parent: RDD[(K, Vector)])
     (implicit val kClassTag: ClassTag[K])
   extends RDD[(K, Vector)](parent) {
 
-  lazy val keys = parent.map(_._1).collect()
+  lazy val keys: Array[K] = parent.map(_._1).collect()
 
   /**
    * Collects the RDD as a local TimeSeries
@@ -155,7 +155,7 @@ class TimeSeriesRDD[K](val index: DateTimeIndex, parent: RDD[(K, Vector)])
     * of the TimeSeriesRDD, keeping only the rows for which the condition
     * is true on the specified columns (in filterColumns).
     */
-  def filterByInstant(filterExpression: (Double) => Boolean,
+  def filterByInstant(filterExpression: Double => Boolean,
                       filterColumns: Array[K]): TimeSeriesRDD[K] = {
 
     val zero = new Array[Boolean](index.size)
@@ -163,8 +163,9 @@ class TimeSeriesRDD[K](val index: DateTimeIndex, parent: RDD[(K, Vector)])
       if (filterColumns.contains(rec._1)) {
         var i = 0
         while (i < arr.length) {
-          if (filterExpression(rec._2(i)) == false)
+          if (!filterExpression(rec._2(i))) {
             arr(i) |= true
+          }
           i += 1
         }
       }
@@ -246,7 +247,7 @@ class TimeSeriesRDD[K](val index: DateTimeIndex, parent: RDD[(K, Vector)])
    * Applies a transformation to each time series that preserves the time index of this
    * TimeSeriesRDD.
    */
-  def mapSeries[U](f: (Vector) => Vector): TimeSeriesRDD[K] = {
+  def mapSeries[U](f: Vector => Vector): TimeSeriesRDD[K] = {
     new TimeSeriesRDD[K](index, map(kt => (kt._1, f(kt._2))))
   }
 
@@ -254,7 +255,7 @@ class TimeSeriesRDD[K](val index: DateTimeIndex, parent: RDD[(K, Vector)])
    * Applies a transformation to each time series and returns a TimeSeriesRDD with the given index.
    * The caller is expected to ensure that the time series produced line up with the given index.
    */
-  def mapSeries[U](f: (Vector) => Vector, index: DateTimeIndex)
+  def mapSeries[U](f: Vector => Vector, index: DateTimeIndex)
     : TimeSeriesRDD[K] = {
     new TimeSeriesRDD[K](index, map(kt => (kt._1, f(kt._2))))
   }
@@ -317,7 +318,7 @@ class TimeSeriesRDD[K](val index: DateTimeIndex, parent: RDD[(K, Vector)])
       override def numPartitions: Int = nPart
       override def getPartition(key: Any): Int = key.asInstanceOf[(Int, _, _)]._1 / denom
     }
-    implicit val ordering = new Ordering[(Int, Int, Int)] {
+    implicit val ordering: Ordering[(Int, Int, Int)] = new Ordering[(Int, Int, Int)] {
       override def compare(a: (Int, Int, Int), b: (Int, Int, Int)): Int = {
         val diff1 = a._1 - b._1
         if (diff1 != 0) {
@@ -335,8 +336,8 @@ class TimeSeriesRDD[K](val index: DateTimeIndex, parent: RDD[(K, Vector)])
     val repartitioned = dividedOnMapSide.repartitionAndSortWithinPartitions(partitioner)
     repartitioned.mapPartitions { iter0: Iterator[((Int, Int, Int), Vector)] =>
       new Iterator[(ZonedDateTime, Vector)] {
-        var snipsPerSample = -1
-        var elementsPerSample = -1
+        var snipsPerSample: Int = -1
+        var elementsPerSample: Int = -1
         var iter: Iterator[((Int, Int, Int), Vector)] = _
 
         // Read the first sample specially so that we know the number of elements and snippets
@@ -427,16 +428,16 @@ class TimeSeriesRDD[K](val index: DateTimeIndex, parent: RDD[(K, Vector)])
         if (value.isNaN) {
           None
         } else {
-          val inst = index.dateTimeAtLoc(i).toInstant()
+          val inst = index.dateTimeAtLoc(i).toInstant
           Some(Row(Timestamp.from(inst), key.toString, value))
         }
       }
     }
 
     val schema = new StructType(Array(
-      new StructField(tsCol, TimestampType),
-      new StructField(keyCol, StringType),
-      new StructField(valueCol, DoubleType)
+      StructField(tsCol, TimestampType),
+      StructField(keyCol, StringType),
+      StructField(valueCol, DoubleType)
     ))
 
     sqlContext.createDataFrame(rowRdd, schema)
@@ -539,7 +540,7 @@ class TimeSeriesRDD[K](val index: DateTimeIndex, parent: RDD[(K, Vector)])
         } else if (pair._2 == null) {
           ("", Vectors.dense(Array[Double]()))
         } else {
-          (pair._1.toString(), Vectors.dense(pair._2.toArray))
+          (pair._1.toString, Vectors.dense(pair._2.toArray))
         }
       }
     }).toDF()
@@ -547,7 +548,7 @@ class TimeSeriesRDD[K](val index: DateTimeIndex, parent: RDD[(K, Vector)])
     df.write.mode(SaveMode.Overwrite).parquet(path)
 
     // Write out time index
-    spark.sparkContext.parallelize(Array(index.toString())).saveAsTextFile(path + ".idx")
+    spark.sparkContext.parallelize(Array(index.toString)).saveAsTextFile(path + ".idx")
   }
 
   /**
@@ -700,7 +701,7 @@ object TimeSeriesRDD {
     val rdd = df.select(tsCol, keyCol, valueCol).rdd.map { row =>
       ((row.getString(1), row.getAs[Timestamp](0)), row.getDouble(2))
     }
-    implicit val ordering = new Ordering[(String, Timestamp)] {
+    implicit val ordering: Ordering[(String, Timestamp)] = new Ordering[(String, Timestamp)] {
       override def compare(a: (String, Timestamp), b: (String, Timestamp)): Int = {
         val strCompare = a._1.compareTo(b._1)
         if (strCompare != 0) strCompare else a._2.compareTo(b._2)
@@ -766,11 +767,12 @@ object TimeSeriesRDD {
   /**
     * Loads a TimeSeriesRDD from a parquet file and a date-time index.
     */
-  def timeSeriesRDDFromParquet(path: String, spark: SparkSession) = {
+  def timeSeriesRDDFromParquet(path: String, spark: SparkSession): TimeSeriesRDD[String] = {
     val df = spark.read.parquet(path)
 
     import spark.implicits._
-    val parent = df.map(row => (row(0).toString(), Vectors.dense(row(1).asInstanceOf[Vector].toArray)))
+    val parent = df.map(row => (row(0).toString,
+      Vectors.dense(row(1).asInstanceOf[Vector].toArray)))
 
     // Write out time index
     val textDateTime: String = spark.sparkContext.textFile(path + ".idx").collect().head
