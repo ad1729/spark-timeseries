@@ -17,13 +17,18 @@ package com.cloudera.sparkts.models
 
 import org.apache.commons.math3.analysis.MultivariateFunction
 import org.apache.spark.mllib.linalg._
-import org.apache.commons.math3.optim.MaxIter
-import org.apache.commons.math3.optim.nonlinear.scalar.ObjectiveFunction
-import org.apache.commons.math3.optim.MaxEval
-import org.apache.commons.math3.optim.SimpleBounds
-import org.apache.commons.math3.optim.nonlinear.scalar.noderiv.BOBYQAOptimizer
-import org.apache.commons.math3.optim.InitialGuess
-import org.apache.commons.math3.optim.nonlinear.scalar.GoalType
+import org.apache.commons.math3.optim.{InitialGuess, MaxEval, MaxIter, SimpleBounds, SimpleValueChecker}
+import org.apache.commons.math3.optim.nonlinear.scalar.{GoalType, ObjectiveFunction}
+import org.apache.commons.math3.optim.nonlinear.scalar.noderiv.{BOBYQAOptimizer, CMAESOptimizer}
+import org.apache.commons.math3.random.MersenneTwister
+
+// define objects for optimizer parameters; in case the user wants to override (some of) these parameters
+sealed trait bobyqaParam
+object bobyqaParam {
+  case object numberOfInterpolationPoints extends bobyqaParam
+  case object initialTrustRegionRadius extends bobyqaParam
+  case object stoppingTrustRegionRadius extends bobyqaParam
+}
 
 /**
  * Triple exponential smoothing takes into account seasonal changes as well as trends.
@@ -40,6 +45,8 @@ import org.apache.commons.math3.optim.nonlinear.scalar.GoalType
  */
 object HoltWinters {
 
+  import bobyqaParam._
+
   /**
    * Fit HoltWinter model to a given time series. Holt Winter Model has three parameters
    * level, trend and season component of time series.
@@ -55,16 +62,37 @@ object HoltWinters {
    *  	proportional to the level of the series.
    * @param method: Currently only BOBYQA is supported.
    */
-  def fitModel(ts: Vector, period: Int, modelType: String = "additive", method: String = "BOBYQA")
-  : HoltWintersModel = {
+  def fitModel(ts: Vector,
+               period: Int,
+               modelType: String = "additive",
+               method: String = "BOBYQA",
+               niter: Int = 1000,
+               bobyqaParamMap: Map[bobyqaParam, String] = Map(
+                 numberOfInterpolationPoints -> "7", // default is 2p + 1
+                 initialTrustRegionRadius -> "10.0",
+                 stoppingTrustRegionRadius -> "1.0E-8"
+               ),
+               cmaesParamMap: Map[String, String] = Map()
+              ): HoltWintersModel = {
     method match {
-      case "BOBYQA" => fitModelWithBOBYQA(ts, period, modelType)
-      case _ => throw new UnsupportedOperationException("Currently only supports 'BOBYQA'")
+      case "BOBYQA" => fitModelWithBOBYQA(ts, period, modelType, niter, bobyqaParamMap)
+      case "CMAES" => fitModelWithCMAES(ts, period, modelType, niter, cmaesParamMap)
+      case _ => throw new UnsupportedOperationException("Currently only supports 'BOBYQA' or 'CMAES'")
     }
   }
 
-  def fitModelWithBOBYQA(ts: Vector, period: Int, modelType:String): HoltWintersModel = {
-    val optimizer = new BOBYQAOptimizer(7)
+  private def fitModelWithBOBYQA(ts: Vector,
+                                 period: Int,
+                                 modelType:String,
+                                 niter: Int,
+                                 bobyqaParamMap: Map[bobyqaParam, String]): HoltWintersModel = {
+
+    val optimizer = new BOBYQAOptimizer(
+        bobyqaParamMap(numberOfInterpolationPoints).toInt,
+        bobyqaParamMap(initialTrustRegionRadius).toDouble,
+        bobyqaParamMap(stoppingTrustRegionRadius).toDouble
+    )
+
     val objectiveFunction = new ObjectiveFunction(new MultivariateFunction() {
       def value(params: Array[Double]): Double = {
         new HoltWintersModel(modelType, period, params(0), params(1), params(2)).sse(ts)
@@ -73,11 +101,48 @@ object HoltWinters {
 
     // The starting guesses in R's stats:HoltWinters
     val initGuess = new InitialGuess(Array(0.3, 0.1, 0.1))
-    val maxIter = new MaxIter(30000)
-    val maxEval = new MaxEval(30000)
+    val maxIter = new MaxIter(niter)
+    val maxEval = new MaxEval(niter)
     val goal = GoalType.MINIMIZE
     val bounds = new SimpleBounds(Array(0.0, 0.0, 0.0), Array(1.0, 1.0, 1.0))
     val optimal = optimizer.optimize(objectiveFunction, goal, bounds,initGuess, maxIter, maxEval)
+    val params = optimal.getPoint
+    new HoltWintersModel(modelType, period, params(0), params(1), params(2))
+  }
+
+  private def fitModelWithCMAES(ts: Vector,
+                                period: Int,
+                                modelType:String,
+                                niter: Int,
+                                cmaesParamMap: Map[String, String]): HoltWintersModel = {
+
+    val optimizer = new CMAESOptimizer(niter,
+      1.0E-3, true,
+      0, 0, new MersenneTwister(), false,
+      new SimpleValueChecker(1.0E-4, 1.0E-4)
+    )
+
+    val objectiveFunction = new ObjectiveFunction(new MultivariateFunction() {
+      def value(params: Array[Double]): Double = {
+        new HoltWintersModel(modelType, period, params(0), params(1), params(2)).sse(ts)
+      }
+    })
+
+    // The starting guesses in R's stats:HoltWinters
+    //val initGuess = new InitialGuess(Array(0.3, 0.1, 0.1))
+    val initGuess = new InitialGuess(Array(0.5, 0.5, 0.5)) // center of the parameter space
+    val maxIter = new MaxIter(niter)
+    val maxEval = new MaxEval(niter)
+    val goal = GoalType.MINIMIZE
+    val bounds = new SimpleBounds(Array(0.0, 0.0, 0.0), Array(1.0, 1.0, 1.0))
+    // CMAES parameters
+    // initial coordinate-wise std. dev for sampling search points around the initial guess
+    val sigma = new CMAESOptimizer.Sigma(Array(0.5, 0.5, 0.5))
+    // number of samples to be drawn from the multivariate normal distribution as candidate solutions
+    // default can be an integer close to 4 + 3 ln(num_params)
+    val populationSize = new CMAESOptimizer.PopulationSize(30)
+
+    val optimal = optimizer.optimize(objectiveFunction, goal, bounds, initGuess, maxIter, maxEval, sigma, populationSize)
     val params = optimal.getPoint
     new HoltWintersModel(modelType, period, params(0), params(1), params(2))
   }
@@ -110,7 +175,7 @@ class HoltWintersModel(
     var sqrErrors = 0.0
 
     // We predict only from period by using the first period - 1 elements.
-    for(i <- period to (n - 1)) {
+    for(i <- period until n) {
       error = ts(i) - smoothed(i)
       sqrErrors += error * error
     }
@@ -131,7 +196,7 @@ class HoltWintersModel(
   override def addTimeDependentEffects(ts: Vector, dest: Vector): Vector = {
     val destArr = dest.toArray
     val fitted = getHoltWintersComponents(ts)._1
-    for (i <- 0 to (dest.size - 1)) {
+    for (i <- 0 until dest.size) {
       destArr(i) = fitted(i)
     }
     dest
@@ -141,8 +206,8 @@ class HoltWintersModel(
    * Final prediction Value is sum of level trend and season
    * But in R's stats:HoltWinters additional weight is given for trend
    *
-   * @param ts
-   * @param dest
+   * @param ts Time series that was used to fit the model
+   * @param dest Vector of length equal to the length of the desired forecast period
    */
   def forecast(ts: Vector, dest: Vector): Vector = {
     val destArr = dest.toArray
@@ -190,11 +255,11 @@ class HoltWintersModel(
     val (initLevel, initTrend, initSeason) = initHoltWinters(ts)
     level(0) = initLevel
     trend(0) = initTrend
-    for (i <- 0 until initSeason.size){
+    for (i <- initSeason.indices){
       season(i) = initSeason(i)
     }
 
-    for (i <- 0 to (n - period - 1)) {
+    for (i <- 0 until (n - period)) {
       dest(i + period) = level(i) + trend(i)
 
       // Add the seasonal factor for additive and multiply for multiplicative model.
@@ -225,7 +290,7 @@ class HoltWintersModel(
     (Vectors.dense(dest), Vectors.dense(level), Vectors.dense(trend), Vectors.dense(season))
   }
 
-  def getKernel(): (Array[Double]) = {
+  def getKernel(): Array[Double] = {
     if (period % 2 == 0){
       val kernel = Array.fill(period + 1)(1.0 / period)
       kernel(0) = 0.5 / period
@@ -243,9 +308,9 @@ class HoltWintersModel(
    * @param inData Series on which you want to do moving average
    * @param kernel Weight vector for weighted moving average
    */
-  def convolve(inData: Array[Double], kernel: Array[Double]): (Array[Double]) = {
-    val kernelSize = kernel.size
-    val dataSize = inData.size
+  def convolve(inData: Array[Double], kernel: Array[Double]): Array[Double] = {
+    val kernelSize = kernel.length
+    val dataSize = inData.length
 
     val outData = new Array[Double](dataSize - kernelSize + 1)
 
@@ -266,14 +331,14 @@ class HoltWintersModel(
   /**
    * Function to get the initial level, trend and season using method suggested in
    * http://robjhyndman.com/hyndsight/hw-initialization/
-   * @param ts
+   * @param ts Time series for which the initial level, trend, and seasonality components are requested
    */
   def initHoltWinters(ts: Vector): (Double, Double, Array[Double]) = {
     val arrTs = ts.toArray
 
     // Decompose a window of time series into level trend and seasonal using convolution
     val kernel = getKernel()
-    val kernelSize = kernel.size
+    val kernelSize = kernel.length
     val trend = convolve(arrTs.take(period * 2), kernel)
 
     // Remove the trend from time series. Subtract for additive and divide for multiplicative
@@ -283,9 +348,9 @@ class HoltWintersModel(
       case (a, t) =>
         if (t != 0){
           if (additive) {
-            (a - t)
+            a - t
           } else {
-            (a / t)
+            a / t
           }
         }  else{
           0
@@ -294,7 +359,7 @@ class HoltWintersModel(
 
     // seasonal mean is sum of mean of all season values of that period
     val seasonalMean = removeTrend.splitAt(period).zipped.map { case (prevx, x) =>
-      if (prevx == 0 || x == 0) (x + prevx) else (x + prevx) / 2
+      if (prevx == 0 || x == 0) x + prevx else (x + prevx) / 2
     }
 
     val meanOfFigures = seasonalMean.sum / period
@@ -308,9 +373,9 @@ class HoltWintersModel(
     }
 
     // Do Simple Linear Regression to find the initial level and trend
-    val indices = 1 to trend.size
+    val indices = 1 to trend.length
     val xbar = (indices.sum: Double) / indices.size
-    val ybar = trend.sum / trend.size
+    val ybar = trend.sum / trend.length
 
     val xxbar = indices.map( x => (x - xbar) * (x - xbar) ).sum
     val xybar = indices.zip(trend).map {

@@ -41,19 +41,19 @@ class HoltWintersModelSuite extends FunSuite {
     508.0,461.0,390.0,432.0
   ))
 
-  test("Optimal Paramaters alpha beta gamma - Additive Model") {
+  test("Optimal Paramaters alpha beta gamma - Additive Model (BOBYQA)") {
 
     val period = 12
-    val model = HoltWinters.fitModel(tsAirPassengers, period, "additive", "BOBYQA")
+    val model = HoltWinters.fitModel(tsAirPassengers, period,"additive","BOBYQA", niter = 30000)
 
     model.alpha should be (0.24796 +- 0.01)
     model.beta should be (0.03453 +- 0.01)
     model.gamma should be (1.0 +- 0.01)
   }
 
-  test("Forecast - Additive Model") {
+  test("Forecast - Additive Model (BOBYQA)") {
     val period = 12
-    val model = HoltWinters.fitModel(tsAirPassengers, period, "additive", "BOBYQA")
+    val model = HoltWinters.fitModel(tsAirPassengers, period,"additive","BOBYQA", niter = 30000)
 
     val forecasted = new DenseVector(new Array[Double](period))
     model.forecast(tsAirPassengers, forecasted)
@@ -73,7 +73,43 @@ class HoltWintersModelSuite extends FunSuite {
     actualForecasted(11) = 469.5315
 
     for (i <- 0 until period) {
-      forecasted(i) should be (actualForecasted(i) +- 10)
+      forecasted(i) should be (actualForecasted(i) +- 2)
+    }
+  }
+
+  test("Optimal Paramaters alpha beta gamma - Additive Model (CMAES)") {
+
+    val period = 12
+    val model = HoltWinters.fitModel(tsAirPassengers, period, "additive", "CMAES", niter = 1000)
+
+    model.alpha should be (0.24796 +- 0.01)
+    model.beta should be (0.03453 +- 0.01)
+    model.gamma should be (1.0 +- 0.01)
+  }
+
+  test("Forecast - Additive Model (CMAES)") {
+    val period = 12
+    val model = HoltWinters.fitModel(tsAirPassengers, period, "additive", "CMAES", niter = 1000)
+
+    val forecasted = new DenseVector(new Array[Double](period))
+    model.forecast(tsAirPassengers, forecasted)
+
+    val actualForecasted = new Array[Double](period)
+    actualForecasted(0) = 453.4977
+    actualForecasted(1) = 429.3906
+    actualForecasted(2) = 467.0361
+    actualForecasted(3) = 503.2574
+    actualForecasted(4) = 512.3395
+    actualForecasted(5) = 571.8880
+    actualForecasted(6) = 652.6095
+    actualForecasted(7) = 637.4623
+    actualForecasted(8) = 539.7548
+    actualForecasted(9) = 490.7250
+    actualForecasted(10) = 424.4593
+    actualForecasted(11) = 469.5315
+
+    for (i <- 0 until period) {
+      forecasted(i) should be (actualForecasted(i) +- 2)
     }
   }
 
@@ -125,18 +161,18 @@ class HoltWintersModelSuite extends FunSuite {
     363.23,364.06,364.61,366.40,366.84,365.68,364.52,362.57,360.24,360.83,362.49,364.34
   ))
 
-  test("Optimal Paramaters alpha beta gamma - Multiplicative Model") {
+  test("Optimal Paramaters alpha beta gamma - Multiplicative Model (BOBYQA)") {
     val period = 12
-    val model = HoltWinters.fitModel(tsCO2, period, "multiplicative", "BOBYQA")
+    val model = HoltWinters.fitModel(tsCO2, period, "multiplicative", "BOBYQA", niter = 30000)
 
     model.alpha should be(0.51265 +- 0.01)
     model.beta should be(0.00949 +- 0.01)
     model.gamma should be(0.47289 +- 0.1)
   }
 
-  test("Forecast - Multiplicative Model") {
+  test("Forecast - Multiplicative Model (BOBYQA)") {
     val period = 12
-    val model = HoltWinters.fitModel(tsCO2, period, "multiplicative", "BOBYQA")
+    val model = HoltWinters.fitModel(tsCO2, period, "multiplicative", "BOBYQA", niter = 30000)
 
     val forecasted = new DenseVector(new Array[Double](period))
     model.forecast(tsCO2, forecasted)
@@ -156,7 +192,42 @@ class HoltWintersModelSuite extends FunSuite {
     actualForecasted(11) = 365.6741
 
     for (i <- 0 until period) {
-      forecasted(i) should be (actualForecasted(i) +- 10)
+      forecasted(i) should be (actualForecasted(i) +- 2)
+    }
+  }
+
+  test("Optimal Paramaters alpha beta gamma - Multiplicative Model (CMAES)") {
+    val period = 12
+    val model = HoltWinters.fitModel(tsCO2, period, "multiplicative", "CMAES", niter = 5000)
+
+    model.alpha should be(0.51265 +- 0.01)
+    model.beta should be(0.00949 +- 0.01)
+    model.gamma should be(0.47289 +- 0.1)
+  }
+
+  test("Forecast - Multiplicative Model (CMAES)") {
+    val period = 12
+    val model = HoltWinters.fitModel(tsCO2, period, "multiplicative", "CMAES", niter = 5000)
+
+    val forecasted = new DenseVector(new Array[Double](period))
+    model.forecast(tsCO2, forecasted)
+
+    val actualForecasted = new Array[Double](period)
+    actualForecasted(0) = 365.1079
+    actualForecasted(1) = 365.9664
+    actualForecasted(2) = 366.7343
+    actualForecasted(3) = 368.1364
+    actualForecasted(4) = 368.6674
+    actualForecasted(5) = 367.9508
+    actualForecasted(6) = 366.5318
+    actualForecasted(7) = 364.3799
+    actualForecasted(8) = 362.4731
+    actualForecasted(9) = 362.7520
+    actualForecasted(10) = 364.2203
+    actualForecasted(11) = 365.6741
+
+    for (i <- 0 until period) {
+      forecasted(i) should be (actualForecasted(i) +- 2)
     }
   }
 }
