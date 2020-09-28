@@ -30,6 +30,13 @@ object bobyqaParam {
   case object stoppingTrustRegionRadius extends bobyqaParam
 }
 
+// define objects for optimizer parameters; in case the user wants to override (some of) these parameters
+sealed trait cmaesParam
+object cmaesParam {
+  case object populationSize extends cmaesParam
+  case object tol extends cmaesParam
+}
+
 /**
  * Triple exponential smoothing takes into account seasonal changes as well as trends.
  * Seasonality is deﬁned to be the tendency of time-series data to exhibit behavior that repeats
@@ -46,6 +53,7 @@ object bobyqaParam {
 object HoltWinters {
 
   import bobyqaParam._
+  import cmaesParam._
 
   /**
    * Fit HoltWinter model to a given time series. Holt Winter Model has three parameters
@@ -72,7 +80,10 @@ object HoltWinters {
                  initialTrustRegionRadius -> "10.0",
                  stoppingTrustRegionRadius -> "1.0E-8"
                ),
-               cmaesParamMap: Map[String, String] = Map()
+               cmaesParamMap: Map[cmaesParam, String] = Map(
+                 populationSize -> "30",
+                 tol -> "1.0E-4"
+               )
               ): HoltWintersModel = {
     method match {
       case "BOBYQA" => fitModelWithBOBYQA(ts, period, modelType, niter, bobyqaParamMap)
@@ -114,12 +125,12 @@ object HoltWinters {
                                 period: Int,
                                 modelType:String,
                                 niter: Int,
-                                cmaesParamMap: Map[String, String]): HoltWintersModel = {
+                                cmaesParamMap: Map[cmaesParam, String]): HoltWintersModel = {
 
     val optimizer = new CMAESOptimizer(niter,
-      1.0E-3, true,
+      1.0E-4, true,
       0, 0, new MersenneTwister(), false,
-      new SimpleValueChecker(1.0E-4, 1.0E-4)
+      new SimpleValueChecker(1.0E-4, 1.0E-4, niter)
     )
 
     val objectiveFunction = new ObjectiveFunction(new MultivariateFunction() {
